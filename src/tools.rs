@@ -507,6 +507,10 @@ pub(crate) fn time_elapsed(time: &Time) -> Duration {
     time.elapsed().unwrap_or_default()
 }
 
+pub(crate) fn pgp_time() -> pgp::types::Timestamp {
+    pgp::types::Timestamp::from_secs(time() as u32)
+}
+
 pub(crate) trait IsNoneOrEmpty<T> {
     /// Returns true if an Option does not contain a string
     /// or contains an empty string.

@@ -20,7 +20,8 @@ use crate::net::dns::prune_dns_cache;
 use crate::net::http::http_cache_cleanup;
 use crate::net::prune_connection_history;
 use crate::param::{Param, Params};
-use crate::tools::{SystemTime, delete_file, time};
+use crate::pgp::autocrypt2;
+use crate::tools::{SystemTime, delete_file, pgp_time, time};
 
 /// Extension to [`rusqlite::ToSql`] trait
 /// which also includes [`Send`] and [`Sync`].
@@ -900,6 +901,12 @@ pub async fn housekeeping(context: &Context) -> Result<()> {
     remove_old_pending_reactions(context)
         .await
         .context("Failed to remove old pending reactions")
+        .log_err(context)
+        .ok();
+
+    autocrypt2::housekeeping(context, pgp_time())
+        .await
+        .context("Failed Autocrypt 2 housekeeping")
         .log_err(context)
         .ok();
 
