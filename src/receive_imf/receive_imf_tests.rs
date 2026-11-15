@@ -5753,3 +5753,83 @@ pub(crate) async fn first_row_in_smtp_queue(context: &TestContext) -> (MsgId, St
 
     (msg_id, rendered_mail.message)
 }
+
+/// Returns the info message added right before the last received message.
+async fn get_info_before_last_msg(t: &TestContext, chat_id: ChatId) -> Message {
+    let cnt = get_chat_msgs(t, chat_id).await.unwrap().len();
+    let info_msg = get_chat_msg(t, chat_id, cnt - 2, cnt).await;
+    assert!(info_msg.is_info());
+    info_msg
+}
+
+/// Deletes the last info message from a given chat, syncs to the other device (t2),
+/// and asserts that the info message is deleted there as well
+async fn deleted_info_and_check_deletions(
+    t1: &TestContext,
+    chat_id1: ChatId,
+    t2: &TestContext,
+    chat_id2: ChatId,
+) -> Result<()> {
+    let info1 = get_info_before_last_msg(t1, chat_id1).await;
+    let info2 = get_info_before_last_msg(t2, chat_id2).await;
+    assert_eq!(info1.text, info2.text);
+
+    t1.set_config_bool(Config::SyncMsgs, true).await?;
+    t2.set_config_bool(Config::SyncMsgs, true).await?;
+    message::delete_msgs(t1, &[info1.id]).await?;
+    let cnt = chat_id2.get_msg_cnt(t2).await?;
+    test_utils::sync(t1, t2).await;
+
+    assert_eq!(chat_id2.get_msg_cnt(t2).await?, cnt - 1);
+    Ok(())
+}
+
+/// Test that deletion of info messages about implicit member addition affect all devices
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_delete_implicit_member_added_info_on_all_devices() -> Result<()> {
+    let mut tcm = TestContextManager::new();
+    let alice = &tcm.alice().await;
+    let bob = &tcm.bob().await;
+    let bob2 = &tcm.bob().await;
+    let fiona = &tcm.fiona().await;
+
+    // Alice creates a group with Bob, adds Fiona, but that message is lost;
+    // Bob's devices add Fiona implicitly with the next message, which adds the info message we want to test
+    let alice_chat_id = alice.create_group_with_members("grp", &[bob]).await;
+    let sent = alice.send_text(alice_chat_id, "hi").await;
+    let bob_chat_id = bob.recv_msg(&sent).await.chat_id;
+    let bob2_chat_id = bob2.recv_msg(&sent).await.chat_id;
+    let fiona_id = alice.add_or_lookup_contact_id(fiona).await;
+    add_contact_to_chat(alice, alice_chat_id, fiona_id).await?; // Bob does not get that addition
+    alice.pop_sent_msg().await;
+
+    let sent = alice.send_text(alice_chat_id, "welcome").await;
+    bob.recv_msg(&sent).await;
+    bob2.recv_msg(&sent).await;
+    deleted_info_and_check_deletions(bob, bob_chat_id, bob2, bob2_chat_id).await
+}
+
+/// Test that deletion of info messages about ephemeral timer changes affect all devices
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_delete_ephemeral_timer_info_on_all_devices() -> Result<()> {
+    let mut tcm = TestContextManager::new();
+    let alice = &tcm.alice().await;
+    let bob = &tcm.bob().await;
+    let bob2 = &tcm.bob().await;
+
+    // Alice sets an ephemeral timer, but that message is lost
+    let alice_chat_id = alice.create_chat(bob).await.id;
+    let sent = alice.send_text(alice_chat_id, "hi").await;
+    let bob_chat_id = bob.recv_msg(&sent).await.chat_id;
+    let bob2_chat_id = bob2.recv_msg(&sent).await.chat_id;
+    alice_chat_id
+        .set_ephemeral_timer(alice, crate::ephemeral::Timer::from_u32(60))
+        .await?;
+    alice.pop_sent_msg().await;
+
+    // Bob's devices change the timer with the next message
+    let sent = alice.send_text(alice_chat_id, "still there?").await;
+    bob.recv_msg(&sent).await;
+    bob2.recv_msg(&sent).await;
+    deleted_info_and_check_deletions(bob, bob_chat_id, bob2, bob2_chat_id).await
+}
