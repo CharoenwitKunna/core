@@ -432,8 +432,12 @@ impl DcKey for SignedPublicKey {
         // fail and we can hide this error.
         let headers =
             header.map(|(key, value)| BTreeMap::from([(key.to_string(), vec![value.to_string()])]));
+        let armor_options = pgp::composed::ArmorOptions {
+            headers: headers.as_ref(),
+            include_checksum: false,
+        };
         let mut buf = Vec::new();
-        self.to_armored_writer(&mut buf, headers.as_ref().into())
+        self.to_armored_writer(&mut buf, armor_options)
             .unwrap_or_default();
         std::string::String::from_utf8(buf).unwrap_or_default()
     }
@@ -455,8 +459,12 @@ impl DcKey for SignedSecretKey {
         // fail and we can hide this error.  The string is always ASCII.
         let headers =
             header.map(|(key, value)| BTreeMap::from([(key.to_string(), vec![value.to_string()])]));
+        let armor_options = pgp::composed::ArmorOptions {
+            headers: headers.as_ref(),
+            include_checksum: false,
+        };
         let mut buf = Vec::new();
-        self.to_armored_writer(&mut buf, headers.as_ref().into())
+        self.to_armored_writer(&mut buf, armor_options)
             .unwrap_or_default();
         std::string::String::from_utf8(buf).unwrap_or_default()
     }
